@@ -5,13 +5,15 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    allowedHosts: ['all'],
     host: true,
     port: 5173
   },
   preview: {
-    allowedHosts: ['all'],
-    host: true,
-    port: 4173
+    host: '0.0.0.0',
+    port: 4173,
+    allowedHosts: [
+      'diligent-friendship-production.up.railway.app',
+      '.railway.app'
+    ]
   }
 })
