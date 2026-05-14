@@ -81,73 +81,55 @@ const authMiddleware = (req, res, next) => {
 
 const parseNmapOutput = (output) => {
   const ports = [];
-  const lines = output.split("\n");
-  for (const line of lines) {
-    const match = line.match(/^(\d+)\/(tcp|udp)\s+(open|filtered|closed)\s+(\S+)(.*)$/);
+  for (const line of output.split("\n")) {
+    const match = line.match(/^(\d+)\/(tcp|udp)\s+(open|filtered|closed)\s+(\S+)\s*(.*)$/);
     if (match) {
-      ports.push({
-        port: match[1],
-        proto: match[2],
-        state: match[3],
-        service: match[4],
-        version: match[5].trim()
-      });
+      ports.push({ port: match[1], proto: match[2], state: match[3], service: match[4], version: match[5].trim() });
     }
   }
   return ports;
 };
 
 const getVulnerabilities = (ports) => {
-  const vulns = [];
   const vulnDb = {
-    "21": { title: "FTP Open", severity: "High", cve: "CVE-2011-2523", description: "FTP port open. Credentials sent in plaintext. Risk of brute force and sniffing attacks." },
-    "22": { title: "SSH Exposed", severity: "Medium", cve: "CVE-2023-38408", description: "SSH port open to public. Ensure key-based auth only. Disable root login." },
-    "23": { title: "Telnet Open", severity: "Critical", cve: "CVE-2020-10188", description: "Telnet transmits data in plaintext including credentials. Immediately disable." },
-    "25": { title: "SMTP Open", severity: "Medium", cve: "CVE-2020-7247", description: "SMTP port exposed. Risk of open relay and spam abuse." },
-    "80": { title: "HTTP Unencrypted", severity: "Low", cve: "CVE-2021-41773", description: "Unencrypted HTTP traffic. Redirect all HTTP to HTTPS to prevent MITM attacks." },
-    "443": { title: "HTTPS Open", severity: "Info", cve: null, description: "HTTPS running. Check SSL/TLS version and cipher suites for weak configurations." },
-    "3306": { title: "MySQL Exposed", severity: "Critical", cve: "CVE-2012-2122", description: "MySQL database port publicly exposed. Restrict to localhost immediately." },
-    "5432": { title: "PostgreSQL Exposed", severity: "Critical", cve: "CVE-2019-10164", description: "PostgreSQL port publicly exposed. Restrict access to trusted IPs only." },
-    "6379": { title: "Redis Exposed", severity: "Critical", cve: "CVE-2022-0543", description: "Redis port exposed without auth. Can lead to full system compromise." },
-    "8080": { title: "HTTP Proxy Open", severity: "Medium", cve: null, description: "Alternative HTTP port open. Often used by dev servers without proper security." },
-    "8443": { title: "HTTPS Alt Port", severity: "Low", cve: null, description: "Alternative HTTPS port open. Verify SSL certificate validity." },
-    "27017": { title: "MongoDB Exposed", severity: "Critical", cve: "CVE-2017-15535", description: "MongoDB port exposed. No auth by default. Critical data exposure risk." },
+    "21": { title: "FTP Open", severity: "High", cve: "CVE-2011-2523", description: "FTP transmits credentials in plaintext. Risk of brute force and sniffing." },
+    "22": { title: "SSH Exposed", severity: "Medium", cve: "CVE-2023-38408", description: "SSH open to public. Use key-based auth only. Disable root login." },
+    "23": { title: "Telnet Open", severity: "Critical", cve: "CVE-2020-10188", description: "Telnet transmits data in plaintext. Immediately disable this service." },
+    "25": { title: "SMTP Open", severity: "Medium", cve: "CVE-2020-7247", description: "SMTP exposed. Risk of open relay abuse and spam." },
+    "80": { title: "HTTP Unencrypted", severity: "Low", cve: "CVE-2021-41773", description: "Unencrypted HTTP. Redirect all traffic to HTTPS." },
+    "443": { title: "HTTPS Open", severity: "Info", cve: null, description: "HTTPS running. Verify SSL/TLS version and cipher strength." },
+    "3306": { title: "MySQL Exposed", severity: "Critical", cve: "CVE-2012-2122", description: "MySQL publicly exposed. Restrict to localhost immediately." },
+    "5432": { title: "PostgreSQL Exposed", severity: "Critical", cve: "CVE-2019-10164", description: "PostgreSQL publicly exposed. Restrict to trusted IPs only." },
+    "6379": { title: "Redis Exposed", severity: "Critical", cve: "CVE-2022-0543", description: "Redis without auth. Can lead to full system compromise." },
+    "8080": { title: "HTTP Proxy Open", severity: "Medium", cve: null, description: "Alt HTTP port open. Often misconfigured dev servers." },
+    "8443": { title: "HTTPS Alt Port", severity: "Low", cve: null, description: "Alt HTTPS port. Verify certificate validity." },
+    "27017": { title: "MongoDB Exposed", severity: "Critical", cve: "CVE-2017-15535", description: "MongoDB exposed with no auth by default. Critical data risk." },
   };
-  for (const p of ports) {
-    if (p.state === "open" && vulnDb[p.port]) {
-      vulns.push(vulnDb[p.port]);
-    }
-  }
-  return vulns;
+  return ports.filter(p => p.state === "open" && vulnDb[p.port]).map(p => vulnDb[p.port]);
 };
 
 app.post("/api/scan", authMiddleware, async (req, res) => {
   const { target } = req.body;
   if (!target) return res.status(400).json({ success: false, message: "Target required" });
-
-  const safetarget = target.replace(/[^a-zA-Z0-9.\-_]/g, "");
+  const safeTarget = target.replace(/[^a-zA-Z0-9.\-_]/g, "");
 
   try {
-    const { stdout, stderr } = await execAsync(
-      `nmap -sV -T4 --open ${safetarget}`,
+    // -sT = TCP connect scan (no raw socket needed)
+    // -Pn = skip host discovery
+    // --open = only show open ports
+    const { stdout } = await execAsync(
+      `nmap -sT -Pn --open -p 21,22,23,25,80,443,3306,5432,6379,8080,8443,27017 ${safeTarget}`,
       { timeout: 60000 }
     );
 
-    const output = stdout || stderr;
-    const ports = parseNmapOutput(output);
+    const ports = parseNmapOutput(stdout);
     const vulnerabilities = getVulnerabilities(ports);
 
-    const scanResult = {
-      success: true,
-      target: safetarget,
-      scan_result: output,
-      ports,
-      vulnerabilities
-    };
+    const scanResult = { success: true, target: safeTarget, scan_result: stdout, ports, vulnerabilities };
 
     const saved = await pool.query(
       "INSERT INTO scans (target, result, status, user_id) VALUES ($1,$2,$3,$4) RETURNING id",
-      [safetarget, JSON.stringify(scanResult), "completed", req.user.id]
+      [safeTarget, JSON.stringify(scanResult), "completed", req.user.id]
     );
 
     res.json({ ...scanResult, scanId: saved.rows[0].id });
@@ -183,21 +165,16 @@ app.get("/api/scans/:id/pdf", authMiddleware, async (req, res) => {
       "===========================",
       "Target   : " + scan.target,
       "Date     : " + new Date(scan.created_at).toLocaleString(),
-      "Status   : " + scan.status.toUpperCase(),
+      "Status   : COMPLETED",
       "Scan ID  : " + scan.id,
-      "",
-      "OPEN PORTS",
-      "----------",
+      "", "OPEN PORTS", "----------",
     ];
-    (data.ports || []).forEach(p => {
-      lines.push(`${p.port}/${p.proto}  ${p.state}  ${p.service}  ${p.version}`);
-    });
+    (data.ports || []).forEach(p => lines.push(`${p.port}/${p.proto}  ${p.state}  ${p.service}  ${p.version}`));
     lines.push("", "VULNERABILITIES", "---------------");
     (data.vulnerabilities || []).forEach(v => {
       lines.push(`[${v.severity}] ${v.title}`);
       if (v.cve) lines.push(`CVE: ${v.cve}`);
-      lines.push(v.description);
-      lines.push("");
+      lines.push(v.description, "");
     });
     lines.push("RAW NMAP OUTPUT", "---------------", data.scan_result || "");
     res.setHeader("Content-Type", "text/plain");
