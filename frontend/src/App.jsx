@@ -12,7 +12,6 @@ const SEVERITY = {
 
 const SCAN_TYPES = [
   { id: "quick",   label: "⚡ Quick",   desc: "Common ports ~5s"     },
-  { id: "stealth", label: "🕵️ Stealth", desc: "Attack surface ~10s"  },
 ];
 
 function AuthPage({ onLogin, dark }) {
