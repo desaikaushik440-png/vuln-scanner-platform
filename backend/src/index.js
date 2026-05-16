@@ -218,3 +218,48 @@ app.get("/api/scans/:id/pdf", authMiddleware, async (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => console.log(`Backend running on port ${PORT}`));
+
+// ADMIN ROUTES
+const adminMiddleware = (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ success: false, message: "Unauthorized" });
+  try {
+    const decoded = jwt.verify(auth.split(" ")[1], process.env.JWT_SECRET || "secret");
+    if (decoded.role !== "ADMIN") return res.status(403).json({ success: false, message: "Admins only" });
+    req.user = decoded;
+    next();
+  } catch { res.status(401).json({ success: false, message: "Invalid token" }); }
+};
+
+app.get("/api/admin/users", adminMiddleware, async (req, res) => {
+  try {
+    const users = await pool.query("SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC");
+    const scans = await pool.query("SELECT user_id, COUNT(*) as scan_count FROM scans GROUP BY user_id");
+    const scanMap = {};
+    scans.rows.forEach(s => { scanMap[s.user_id] = s.scan_count; });
+    const result = users.rows.map(u => ({ ...u, scan_count: scanMap[u.id] || 0 }));
+    res.json({ success: true, users: result, total: result.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get("/api/admin/scans", adminMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT s.id, s.target, s.status, s.created_at,
+             s.result->>'riskScore' as risk_score,
+             u.name as user_name, u.email as user_email
+      FROM scans s JOIN users u ON s.user_id = u.id
+      ORDER BY s.created_at DESC LIMIT 100
+    `);
+    res.json({ success: true, scans: result.rows, total: result.rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
+  try {
+    const users = await pool.query("SELECT COUNT(*) as count FROM users");
+    const scans = await pool.query("SELECT COUNT(*) as count FROM scans");
+    const today = await pool.query("SELECT COUNT(*) as count FROM scans WHERE created_at > NOW() - INTERVAL '24 hours'");
+    res.json({ success: true, totalUsers: users.rows[0].count, totalScans: scans.rows[0].count, scansToday: today.rows[0].count });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
