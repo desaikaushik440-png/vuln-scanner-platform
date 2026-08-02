@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VulnScanner</string>
+    <string name="title_activity_main">VulnScanner</string>
+    <string name="package_name">com.kaushik.vulnscanner</string>
+    <string name="custom_url_scheme">com.kaushik.vulnscanner</string>
+</resources>

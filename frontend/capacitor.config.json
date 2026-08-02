@@ -1,0 +1,5 @@
+{
+  "appId": "com.kaushik.vulnscanner",
+  "appName": "VulnScanner",
+  "webDir": "dist"
+}

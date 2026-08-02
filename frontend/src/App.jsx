@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const API = "https://vuln-scanner-platform-production.up.railway.app";
+const API = "http://172.17.163.18:8080";
 
 const SEVERITY = {
   Critical: { color: "#ff4757", bg: "rgba(255,71,87,0.08)",  border: "rgba(255,71,87,0.25)"  },
