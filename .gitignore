@@ -1,3 +1,10 @@
 node_modules
 .env
 .vite
+
+# macOS
+.DS_Store
+
+# Backups / archives
+Archive.zip
+**/vulnscanner_backup.sql

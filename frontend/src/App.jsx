@@ -1,6 +1,14 @@
 import { useState, useEffect } from "react";
 
-const API = "http://172.17.163.18:8080";
+import { Capacitor } from "@capacitor/core";
+
+const getApiUrl = () => {
+  if (Capacitor.getPlatform() === "android") return "http://127.0.0.1:8080";
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  return "http://localhost:8080";
+};
+
+const API = getApiUrl();
 
 const SEVERITY = {
   Critical: { color: "#ff4757", bg: "rgba(255,71,87,0.08)",  border: "rgba(255,71,87,0.25)"  },
@@ -304,11 +312,64 @@ function ScannerPage({ token, user, onLogout }) {
   };
 
   const downloadReport = async (id) => {
-    const res = await fetch(API + "/api/scans/" + id + "/pdf", { headers: { Authorization: "Bearer " + token } });
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "vuln-report-" + id + ".txt"; a.click();
-    window.URL.revokeObjectURL(url);
+    try {
+      const res = await fetch(API + "/api/scans/" + id + "/pdf", {
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to generate report (" + res.status + ")");
+      }
+
+      const blob = await res.blob();
+      const filename = "vuln-report-" + id + ".pdf";
+
+      // Android / Capacitor: save using native filesystem and open share sheet
+      if (Capacitor.getPlatform() === "android") {
+        const { Filesystem, Directory } = await import("@capacitor/filesystem");
+        const { Share } = await import("@capacitor/share");
+
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result;
+            resolve(result.split(",")[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        const saved = await Filesystem.writeFile({
+          path: filename,
+          data: base64,
+          directory: Directory.Documents,
+          recursive: true
+        });
+
+        await Share.share({
+          title: "VulnScanner Report",
+          text: "Vulnerability scan report",
+          files: [saved.uri],
+          dialogTitle: "Export Report"
+        });
+
+        return;
+      }
+
+      // Browser fallback
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error("Report export error:", err);
+      setError("Unable to export report: " + err.message);
+    }
   };
 
   const navItems = [
